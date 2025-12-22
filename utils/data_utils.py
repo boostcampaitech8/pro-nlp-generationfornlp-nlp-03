@@ -50,6 +50,21 @@ CHAT_TEMPLATE = "{% if messages[0]['role'] == 'system' %}{% set system_message =
 # 데이터 로드 함수
 # =============================================================================
 
+def parse_choices(x):
+    if isinstance(x, list):
+        return x
+
+    if isinstance(x, str):
+        s = x.strip()
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                return literal_eval(s)
+            except Exception:
+                # 깨진 리스트 문자열
+                return []
+
+    return []
+
 def load_data(file_path: str) -> pd.DataFrame:
     """
     CSV 파일을 로드하고 problems 컬럼을 파싱
@@ -63,17 +78,34 @@ def load_data(file_path: str) -> pd.DataFrame:
     dataset = pd.read_csv(file_path)
     
     records = []
-    for _, row in dataset.iterrows():
-        problems = literal_eval(row['problems'])
-        record = {
-            'id': row['id'],
-            'paragraph': row['paragraph'],
-            'question': problems['question'],
-            'choices': problems['choices'],
-            'answer': problems.get('answer', None),
-            'question_plus': problems.get('question_plus', None),
-        }
-        records.append(record)
+    
+    if 'question' not in dataset.columns:
+        for _, row in dataset.iterrows():
+            problems = literal_eval(row['problems'])
+            record = {
+                'id': row['id'],
+                'paragraph': row['paragraph'],
+                'question': problems['question'],
+                'choices': problems['choices'],
+                'answer': problems.get('answer', None),
+                'question_plus': problems.get('question_plus', None),
+                'topic': row.get('topic', None),
+            }
+            records.append(record)
+    else:
+        for _, row in dataset.iterrows():
+            record = {
+                'id': row['id'],
+                'paragraph': row['paragraph'],
+                'question': row['question'],
+                'choices': parse_choices(row['choices']),
+                'answer': row.get('answer', None),
+                'question_plus': row.get('question_plus', None),
+                'topic': row.get('topic', None),
+                'type': row['type'],
+                'stratify_key': row['stratify_key']
+            }
+            records.append(record)
     
     return pd.DataFrame(records)
 
@@ -156,6 +188,9 @@ def process_dataset_for_inference(df: pd.DataFrame) -> List[Dict]:
                 {"role": "user", "content": user_message},
             ],
             "label": row.get("answer"),  # test 데이터에는 없을 수 있음
+            "topic": row.get('topic'),
+            "type": row.get("type"),
+            "stratify_key": row.get("stratify_key"),
             "len_choices": len(row["choices"]),
         })
     

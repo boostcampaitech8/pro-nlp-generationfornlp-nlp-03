@@ -10,10 +10,12 @@ from typing import List, Optional
 @dataclass
 class PathConfig:
     """경로 설정"""
-    train_data: str = "/data/ephemeral/home/data/train.csv"
-    test_data: str = "/data/ephemeral/home/data/test.csv"
-    output_dir: str = "outputs_unsloth/Qwen2.5-32B-Instruct-bnb-4bit"
-    output_csv: str = "output.csv"
+    train_data: str = "/data/ephemeral/home/data/split_augment/train_topic_sub-2.csv"
+    test_data: str = "/data/ephemeral/home/data/split_augment/valid_topic_sub-2.csv"   # 검증 데이터
+    # test_data: str = "/data/ephemeral/home/data/test.csv"
+    output_dir: str = "/data/ephemeral/home/pro-nlp-generationfornlp-nlp-03/outputs_unsloth"
+    output_csv: str = "/data/ephemeral/home/pro-nlp-generationfornlp-nlp-03/output.csv"
+    visualize_dir: str = "/data/ephemeral/home/images"
 
 
 @dataclass
@@ -68,7 +70,7 @@ class TrainingConfig:
     save_only_model: bool = True
     
     # 평가 설정
-    test_size: float = 0.1                  # validation split 비율
+    test_size: float = 0.0                # validation split 비율
 
 
 @dataclass

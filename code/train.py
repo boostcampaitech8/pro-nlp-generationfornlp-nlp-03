@@ -17,8 +17,8 @@ from trl import SFTTrainer, SFTConfig
 from peft import LoraConfig
 from unsloth import FastLanguageModel, is_bfloat16_supported
 
-from config import get_config, get_experiment_config
-from data_utils import (
+from code.config import get_config, get_experiment_config
+from utils.data_utils import (
     load_data, 
     process_dataset_for_training, 
     setup_tokenizer, 
@@ -142,6 +142,8 @@ def train(config):
         max_seq_length=config.training.max_seq_length
     )
     
+    """
+    
     # Train/Eval 분할
     split_dataset = tokenized_dataset.train_test_split(
         test_size=config.training.test_size, 
@@ -153,8 +155,10 @@ def train(config):
     print(f"  - Train: {len(train_dataset)} samples")
     print(f"  - Eval: {len(eval_dataset)} samples")
     
+    """
+    
     # 토큰 통계
-    stats = get_token_statistics(train_dataset, tokenizer)
+    stats = get_token_statistics(tokenized_dataset, tokenizer)
     print(f"  - Token 길이: min={stats['min']}, max={stats['max']}, mean={stats['mean']:.1f}")
     
     # 5. LoRA 설정
@@ -175,21 +179,11 @@ def train(config):
     print(f"  - r: {config.lora.r}, alpha: {config.lora.lora_alpha}")
     print(f"  - target_modules: {config.lora.target_modules}")
     
-    # 6. Data Collator 설정
     
-    response_template = "<start_of_turn>model"
-    
-    """
-    data_collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-    )
-    """
-    
-    # 7. 메트릭 함수 생성
+    # 6. 메트릭 함수 생성
     preprocess_logits_for_metrics, compute_metrics = create_metric_functions(tokenizer)
     
-    # 8. SFTConfig 설정
+    # 7. SFTConfig 설정
     print(f"\n📋 학습 설정")
     print(f"  - epochs: {config.training.num_train_epochs}")
     print(f"  - batch_size: {config.training.per_device_train_batch_size}")
@@ -217,26 +211,26 @@ def train(config):
         per_device_eval_batch_size=config.training.per_device_eval_batch_size,
     )
     
-    # 9. Trainer 생성
+    # 8. Trainer 생성
     trainer = SFTTrainer(
         model=model,
         tokenizer = tokenizer,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
+        train_dataset=tokenized_dataset,
+        # eval_dataset=eval_dataset,    
         # data_collator=data_collator,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         args=sft_config,
     )
     
-    # 10. 학습 실행
+    # 9. 학습 실행
     print("\n" + "=" * 60)
     print("🏃 학습 실행 중...")
     print("=" * 60)
     
     train_result = trainer.train()
     
-    # 11. 결과 출력
+    # 10. 결과 출력
     print("\n" + "=" * 60)
     print("✅ 학습 완료!")
     print("=" * 60)

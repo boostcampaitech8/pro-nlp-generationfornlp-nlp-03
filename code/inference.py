@@ -13,11 +13,14 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from sklearn.metrics import f1_score, accuracy_score, classification_report
+
 from transformers import AutoTokenizer, TextStreamer
 from unsloth import FastLanguageModel
 
-from config import get_config
-from data_utils import load_data, process_dataset_for_inference, setup_tokenizer
+from code.config import get_config
+from utils.data_utils import load_data, process_dataset_for_inference, setup_tokenizer
+from utils.analysis_utils import analyze_subject_accuracy
 
 
 # =============================================================================
@@ -58,7 +61,7 @@ def inference(
     
     FastLanguageModel.for_inference(model)
     
-    # tokenizer = setup_tokenizer(tokenizer)  # Instruct 사용 시에는 필요없는 코드
+    tokenizer = setup_tokenizer(tokenizer)  # Instruct 사용 시에는 필요없는 코드
     
     print("  - 모델 및 토크나이저 로드 완료")
     
@@ -79,12 +82,26 @@ def inference(
     MAX_CTX = model.max_seq_length
     print(f"\n📏MAX Seqence Lenght: {MAX_CTX}")
     
+    # validation 데이터 인 경우에 사용 - 새로 추가 
+    topics = []
+    labels = []
+    types = []
+    types_topics = []
+    
     model.eval()
     with torch.inference_mode():
         for data in tqdm(test_dataset, desc="Inference"):
             _id = data["id"]
             messages = data["messages"]
             len_choices = data["len_choices"]
+            
+            # validation 데이터 인 경우에 사용 - 새로 추가
+            if data['topic'] is not None and data['label'] is not None:
+                topics.append(data['topic'])
+                labels.append(str(data['label']))
+                types.append(data['type'])
+                types_topics.append(data['stratify_key'])
+            
             
             # 토큰화
             inputs = tokenizer.apply_chat_template(
@@ -112,7 +129,11 @@ def inference(
             ).detach().cpu().numpy()
             
             # 최종 예측
-            predict_value = pred_choices_map[np.argmax(probs)]
+            if probs.size == 0:
+                predict_value = "1"
+                print("\n🚫 Null Probaility")
+            else:
+                predict_value = pred_choices_map[np.argmax(probs)]
             infer_results.append({"id": _id, "answer": predict_value})
     
     # 4. 결과 저장
@@ -131,6 +152,49 @@ def inference(
     value_counts = result_df['answer'].value_counts().sort_index()
     for ans, count in value_counts.items():
         print(f"  - {ans}: {count} ({count/len(result_df)*100:.1f}%)")
+        
+    # validation 데이터 인 경우에 사용 - 새로 추가
+    if len(topics) != 0:
+        
+        df = result_df.copy()
+        
+        df['label'] = labels
+        df['topic'] = topics
+        df['type'] = types
+        df['stratify_key'] = types_topics
+        
+        f1_macro = f1_score(df["label"], df["answer"], average="macro")
+        f1_weighted = f1_score(df["label"], df["answer"], average="weighted")
+        acc = accuracy_score(df["label"], df["answer"])
+        print("\n📑 Score Report:")
+        print(f"Accuracy     : {acc:.4f}")
+        print(f"F1-macro     : {f1_macro:.4f}")
+        print(f"F1-weighted  : {f1_weighted:.4f}")
+        
+        visual_path = f"{config.path.visualize_dir}/{config.model.model_name}"
+        result_topic = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="topic", 
+            save_dir=visual_path
+        )
+        
+        result_type = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="type", 
+            save_dir=visual_path
+        )
+        
+        result_type_topic = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="stratify_key", 
+            save_dir=visual_path
+        )
     
     return result_df
 
@@ -164,10 +228,10 @@ def inference_with_generation(
     )
     
     FastLanguageModel.for_inference(model)
-    text_streamer = TextStreamer(tokenizer)
+    # text_streamer = TextStreamer(tokenizer)
     
     
-    # tokenizer = setup_tokenizer(tokenizer)  # Instruct 사용 시에는 필요없는 코드
+    tokenizer = setup_tokenizer(tokenizer)
     
     # 테스트 데이터 로드
     print(f"\n📂 테스트 데이터 로드 중: {test_data_path}")
@@ -182,28 +246,64 @@ def inference_with_generation(
     MAX_CTX = model.max_seq_length
     print(f"\n📏MAX Seqence Lenght: {MAX_CTX}")
     
+    # validation 데이터 인 경우에 사용 - 새로 추가 
+    topics = []
+    labels = []
+    types = []
+    types_topics = []
+    
     model.eval()
     with torch.inference_mode():
         for data in tqdm(test_dataset, desc="Inference"):
             _id = data["id"]
             messages = data["messages"]
             
+            # validation 데이터 인 경우에 사용 - 새로 추가
+            if data['topic'] is not None and data['label'] is not None:
+                topics.append(data['topic'])
+                labels.append(str(data['label']))
+                types.append(data['type'])
+                types_topics.append(data['stratify_key'])
+            """
             inputs = tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 add_generation_prompt=True,
                 return_tensors="pt",
             ).to(device)
+            """
             
+            # Claude로 추가(경고 떠서 추가한 코드)
+            inputs = tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            ).to(device)
+
+            # attention_mask 생성
+            attention_mask = torch.ones_like(inputs).to(device)
+
             
+            """
             # 생성
             outputs = model.generate(
                 inputs,
-                streamer=text_streamer,
+                # streamer=text_streamer,
                 max_new_tokens=max_new_tokens,
                 do_sample=False,  # Greedy decoding
-                # pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=tokenizer.pad_token_id,
             )
+            """
+            
+            outputs = model.generate(
+                input_ids=inputs,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id,
+            )
+                        
             
             # 디코딩 (생성된 부분만)
             generated = outputs[0][inputs.shape[1]:]
@@ -223,6 +323,55 @@ def inference_with_generation(
     result_df.to_csv(output_path, index=False)
     
     print(f"\n✅ 추론 완료! 저장 위치: {output_path}")
+    
+        # 예측 분포 출력
+    print("\n📊 예측 분포:")
+    value_counts = result_df['answer'].value_counts().sort_index()
+    for ans, count in value_counts.items():
+        print(f"  - {ans}: {count} ({count/len(result_df)*100:.1f}%)")
+    
+    # validation 데이터 인 경우에 사용 - 새로 추가
+    if len(topics) != 0:
+        
+        df = result_df.copy()
+        
+        df['label'] = labels
+        df['topic'] = topics
+        df['type'] = types
+        df['stratify_key'] = types_topics
+        
+        f1_macro = f1_score(df["label"], df["answer"], average="macro")
+        f1_weighted = f1_score(df["label"], df["answer"], average="weighted")
+        acc = accuracy_score(df["label"], df["answer"])
+        print("\n📑 Score Report:")
+        print(f"Accuracy     : {acc:.4f}")
+        print(f"F1-macro     : {f1_macro:.4f}")
+        print(f"F1-weighted  : {f1_weighted:.4f}")
+        
+        visual_path = f"{config.path.visualize_dir}/{config.model.model_name}"
+        result_topic = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="topic", 
+            save_dir=visual_path
+        )
+        
+        result_type = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="type", 
+            save_dir=visual_path
+        )
+        
+        result_type_topic = analyze_subject_accuracy(
+            df, 
+            true_col="label", 
+            pred_col="answer", 
+            topic_col="stratify_key", 
+            save_dir=visual_path
+        )
     
     return result_df
 
