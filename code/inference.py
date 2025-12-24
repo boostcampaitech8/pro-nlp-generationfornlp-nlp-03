@@ -21,6 +21,7 @@ from unsloth import FastLanguageModel
 from code.config import get_config
 from utils.data_utils import load_data, process_dataset_for_inference, setup_tokenizer
 from utils.analysis_utils import analyze_subject_accuracy
+from utils.parser_utils import parse_answer
 
 
 # =============================================================================
@@ -134,7 +135,18 @@ def inference(
                 print("\n🚫 Null Probaility")
             else:
                 predict_value = pred_choices_map[np.argmax(probs)]
-            infer_results.append({"id": _id, "answer": predict_value})
+                logit_confidence = float(np.max(probs))
+                
+                # 1등 확률과 2등 확률 간의 차이 계산
+                sorted_probs = np.sort(probs)[::-1]
+                logit_margin = float(sorted_probs[0] - sorted_probs[1])
+                
+            infer_results.append({"id": _id, 
+                                  "answer": predict_value, 
+                                  "logit_confidence": logit_confidence,
+                                  "logit_margin": logit_margin
+                                })
+            
     
     # 4. 결과 저장
     print(f"\n💾 결과 저장 중: {output_path}")
@@ -205,7 +217,7 @@ def inference_with_generation(
     test_data_path: str,
     output_path: str,
     device: str = "cuda",
-    max_new_tokens: int = 5
+    max_new_tokens: int =128
 ):
     """
     생성 방식 추론 (generate 함수 사용)
@@ -228,7 +240,7 @@ def inference_with_generation(
     )
     
     FastLanguageModel.for_inference(model)
-    # text_streamer = TextStreamer(tokenizer)
+    text_streamer = TextStreamer(tokenizer)
     
     
     tokenizer = setup_tokenizer(tokenizer)
@@ -264,14 +276,6 @@ def inference_with_generation(
                 labels.append(str(data['label']))
                 types.append(data['type'])
                 types_topics.append(data['stratify_key'])
-            """
-            inputs = tokenizer.apply_chat_template(
-                messages,
-                tokenize=True,
-                add_generation_prompt=True,
-                return_tensors="pt",
-            ).to(device)
-            """
             
             # Claude로 추가(경고 떠서 추가한 코드)
             inputs = tokenizer.apply_chat_template(
@@ -280,25 +284,10 @@ def inference_with_generation(
                 add_generation_prompt=True,
                 return_tensors="pt",
             ).to(device)
-
-            # attention_mask 생성
-            attention_mask = torch.ones_like(inputs).to(device)
-
-            
-            """
-            # 생성
-            outputs = model.generate(
-                inputs,
-                # streamer=text_streamer,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,  # Greedy decoding
-                pad_token_id=tokenizer.pad_token_id,
-            )
-            """
             
             outputs = model.generate(
                 input_ids=inputs,
-                attention_mask=attention_mask,
+                # streamer=text_streamer, # 콘솔 출력용
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
                 pad_token_id=tokenizer.pad_token_id,
@@ -309,14 +298,14 @@ def inference_with_generation(
             generated = outputs[0][inputs.shape[1]:]
             answer_text = tokenizer.decode(generated, skip_special_tokens=True).strip()
             
-            # 정답 추출 (첫 번째 숫자)
-            answer = "1"  # 기본값
-            for char in answer_text:
-                if char in "12345":
-                    answer = char
-                    break
             
-            infer_results.append({"id": _id, "answer": answer})
+            answer = parse_answer(answer_text)
+            if answer is None:
+                answer = "-1"
+            print("\n🔔Parser Answer:", answer)
+
+            
+            infer_results.append({"id": _id, "answer": answer, "raw_output": answer_text})
     
     # 결과 저장
     result_df = pd.DataFrame(infer_results)
@@ -380,11 +369,15 @@ def inference_with_generation(
 # =============================================================================
 
 def main():
+    # 설정 로드
+    config = get_config()
+    
     parser = argparse.ArgumentParser(description="Run inference")
     parser.add_argument(
         "--checkpoint", 
-        type=str, 
-        required=True,
+        type=str,
+        default=config.model.model_name,
+        # required=True,
         help="학습된 체크포인트 경로"
     )
     parser.add_argument(
@@ -415,8 +408,6 @@ def main():
     
     args = parser.parse_args()
     
-    # 설정 로드
-    config = get_config()
     
     test_data_path = args.test_data or config.path.test_data
     output_path = args.output or config.path.output_csv

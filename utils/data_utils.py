@@ -7,40 +7,25 @@ import pandas as pd
 from ast import literal_eval
 from typing import Dict, List, Optional, Tuple
 from datasets import Dataset
+from utils.prompt_utils import (
+        COT_PROMPT_NO_QUESTION_PLUS, 
+        COT_PROMPT_QUESTION_PLUS, 
+        COT_SYSTEM_MESSAGE,
+        PROMPT_NO_QUESTION_PLUS,
+        PROMPT_QUESTION_PLUS,
+        SYSTEM_MESSAGE
+    )
 
 
 # =============================================================================
 # 프롬프트 템플릿
 # =============================================================================
 
-PROMPT_NO_QUESTION_PLUS = """지문:
-{paragraph}
+PROMPT_NO_QUESTION_PLUS = PROMPT_NO_QUESTION_PLUS
 
-질문:
-{question}
+PROMPT_QUESTION_PLUS = PROMPT_QUESTION_PLUS
 
-선택지:
-{choices}
-
-1, 2, 3, 4, 5 중에 하나를 정답으로 고르세요.
-정답:"""
-
-PROMPT_QUESTION_PLUS = """지문:
-{paragraph}
-
-질문:
-{question}
-
-<보기>:
-{question_plus}
-
-선택지:
-{choices}
-
-1, 2, 3, 4, 5 중에 하나를 정답으로 고르세요.
-정답:"""
-
-SYSTEM_MESSAGE = "지문을 읽고 질문의 답을 구하세요."
+SYSTEM_MESSAGE = SYSTEM_MESSAGE
 
 # Gemma용 Chat Template
 CHAT_TEMPLATE = "{% if messages[0]['role'] == 'system' %}{% set system_message = messages[0]['content'] %}{% endif %}{% if system_message is defined %}{{ system_message }}{% endif %}{% for message in messages %}{% set content = message['content'] %}{% if message['role'] == 'user' %}{{ '<start_of_turn>user\\n' + content + '<end_of_turn>\\n<start_of_turn>model\\n' }}{% elif message['role'] == 'assistant' %}{{ content + '<end_of_turn>\\n' }}{% endif %}{% endfor %}"
@@ -128,12 +113,14 @@ def create_user_message(row: Dict) -> str:
             paragraph=row["paragraph"],
             question=row["question"],
             question_plus=row["question_plus"],
+            choice_count=len(row["choices"]),
             choices=choices_string,
         )
     else:
         return PROMPT_NO_QUESTION_PLUS.format(
             paragraph=row["paragraph"],
             question=row["question"],
+            choice_count=len(row["choices"]),
             choices=choices_string,
         )
 
@@ -190,7 +177,7 @@ def process_dataset_for_inference(df: pd.DataFrame) -> List[Dict]:
             "label": row.get("answer"),  # test 데이터에는 없을 수 있음
             "topic": row.get('topic'),
             "type": row.get("type"),
-            "stratify_key": row.get("stratify_key"),
+            "stratify_key": row.get('stratify_key'),
             "len_choices": len(row["choices"]),
         })
     

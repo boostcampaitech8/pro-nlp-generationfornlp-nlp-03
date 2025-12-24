@@ -10,8 +10,8 @@ from typing import List, Optional
 @dataclass
 class PathConfig:
     """경로 설정"""
-    train_data: str = "/data/ephemeral/home/data/split_augment/train_topic_sub-2.csv"
-    test_data: str = "/data/ephemeral/home/data/split_augment/valid_topic_sub-2.csv"   # 검증 데이터
+    train_data: str = "/data/ephemeral/home/data/train_data_final.csv"
+    test_data: str = "/data/ephemeral/home/data/val_data_final.csv"   # 검증 데이터
     # test_data: str = "/data/ephemeral/home/data/test.csv"
     output_dir: str = "/data/ephemeral/home/pro-nlp-generationfornlp-nlp-03/outputs_unsloth"
     output_csv: str = "/data/ephemeral/home/pro-nlp-generationfornlp-nlp-03/output.csv"
