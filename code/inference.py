@@ -217,7 +217,7 @@ def inference_with_generation(
     test_data_path: str,
     output_path: str,
     device: str = "cuda",
-    max_new_tokens: int =128
+    max_new_tokens: int = 128
 ):
     """
     생성 방식 추론 (generate 함수 사용)
@@ -285,8 +285,12 @@ def inference_with_generation(
                 return_tensors="pt",
             ).to(device)
             
+            # attention_mask 생성
+            attention_mask = torch.ones_like(inputs).to(device)
+            
             outputs = model.generate(
                 input_ids=inputs,
+                attention_mask=attention_mask,
                 # streamer=text_streamer, # 콘솔 출력용
                 max_new_tokens=max_new_tokens,
                 do_sample=False,
@@ -302,7 +306,7 @@ def inference_with_generation(
             answer = parse_answer(answer_text)
             if answer is None:
                 answer = "-1"
-            print("\n🔔Parser Answer:", answer)
+            # print("\n🔔Parser Answer:", answer)
 
             
             infer_results.append({"id": _id, "answer": answer, "raw_output": answer_text})
