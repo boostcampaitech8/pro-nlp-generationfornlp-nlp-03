@@ -162,12 +162,20 @@ class DataChunker:
             모든 청크 리스트
         """
         all_chunks = []
-        
+        # Modify
         for doc_id, doc in enumerate(tqdm(documents, desc="Chunking documents")):
-            text = doc.get(text_key, "")
+            if "content" in doc and isinstance(doc["content"], list):
+                text_parts = []
+                for section in doc["content"]:
+                    section_title = section.get("section_title", "")
+                    section_text = section.get("section_text", "")
+                    text_parts.append(f"{section_title}\n{section_text}")
+                text = "\n\n".join(text_parts)
+            else:
+                text = doc.get(text_key, "")
+            
             title = doc.get(title_key, "")
             
-            # 제목과 본문 결합
             full_text = f"{title}\n{text}" if title else text
             
             # 메타데이터 준비 (원본 문서의 메타데이터 포함)
@@ -199,6 +207,7 @@ class DataChunker:
         logger.info(f"Average tokens per chunk: {avg_tokens:.1f}")
         
         return all_chunks
+
     
     def save_chunks(self, chunks: List[Dict], output_path: str):
         """청크를 파일로 저장"""
@@ -258,8 +267,8 @@ def process_korean_history_data(
 if __name__ == "__main__":
     # 예제 실행
     process_korean_history_data(
-        raw_data_path="data/korean_history.json",
-        output_path="data/processed/chunks.pkl",
+        raw_data_path="../data/rag_output.json",
+        output_path="../data/processed2/chunks.pkl",
         chunk_size=512,
         chunk_overlap=1  # 문장 1개 오버랩
     )

@@ -14,6 +14,7 @@ from tqdm import tqdm
 from loguru import logger
 import re
 import numpy as np
+from openai import OpenAI
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
@@ -30,16 +31,32 @@ class ThreeStepRAG:
     
     def __init__(
         self,
-        dense_index_path="models/index_opensource",
+        dense_index_path="models/index_solar",
         bm25_index_path="models/bm25_index.pkl",
-        embedding_model="jhgan/ko-sroberta-multitask",
-        use_reranker=True
+        embedding_model="solar-embedding-1-large-query",
+        use_reranker=True,
+        api_key=None  # 추가
     ):
-        # Dense
-        logger.info(f"임베딩 모델 로드: {embedding_model}")
-        self.embedding_model = SentenceTransformer(embedding_model)
-        self.embedding_dim = self.embedding_model.get_sentence_embedding_dimension()
+        # API 키 설정 (인자 우선, 없으면 환경변수)
+        if api_key:
+            os.environ["UPSTAGE_API_KEY"] = api_key
         
+        api_key = os.getenv("UPSTAGE_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "UPSTAGE_API_KEY not found!\n"
+                "Set: export UPSTAGE_API_KEY='your-key' or use --api-key option"
+            )
+        
+        # Solar API 클라이언트 초기화
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.upstage.ai/v1/solar"
+        )
+        self.embedding_model_name = embedding_model
+        self.embedding_dim = 4096  # Solar embedding 차원
+        
+        # Dense retriever 로드
         logger.info(f"Dense 인덱스 로드: {dense_index_path}")
         self.dense_retriever = DenseRetrieval(embedding_dim=self.embedding_dim)
         self.dense_retriever.load(dense_index_path)
@@ -109,10 +126,33 @@ class ThreeStepRAG:
         
         return sorted(doc_scores.values(), key=lambda x: x['score'], reverse=True)
     
+    def encode_query(self, query: str, retry_count=3) -> np.ndarray:
+        """Solar API로 쿼리 임베딩 (재시도 로직 포함)"""
+        import time
+        
+        for attempt in range(retry_count):
+            try:
+                response = self.client.embeddings.create(
+                    input=[query],
+                    model=self.embedding_model_name
+                )
+                embedding = np.array(response.data[0].embedding)
+                # 정규화
+                embedding = embedding / np.linalg.norm(embedding)
+                return embedding
+            except Exception as e:
+                if "429" in str(e) and attempt < retry_count - 1:
+                    wait_time = 10 * (attempt + 1)
+                    logger.warning(f"Rate limit hit. Waiting {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"쿼리 임베딩 실패: {e}")
+                    raise
+    
     def hybrid_search(self, query: str, top_k=10, use_reranker=True):
         """Hybrid Search: Dense + BM25 + Reranker"""
-        # Dense
-        query_emb = self.embedding_model.encode([query], normalize_embeddings=True)[0]
+        # Dense - Solar API 사용
+        query_emb = self.encode_query(query)  # 수정된 부분
         dense_results = self.dense_retriever.search(query_emb, top_k=100)
         
         # BM25
@@ -348,11 +388,17 @@ def main():
     parser = argparse.ArgumentParser(description="3단계 RAG")
     parser.add_argument('--data-path', type=str, required=True)
     parser.add_argument('--topic', type=str, default='한국사')
-    parser.add_argument('--dense-index', type=str, default='models/index_opensource')
+    parser.add_argument('--dense-index', type=str, default='models/index_solar')
     parser.add_argument('--bm25-index', type=str, default='models/bm25_index.pkl')
     parser.add_argument('--output', type=str, default='results_three_step.json')
     parser.add_argument('--no-reranker', action='store_true')
     parser.add_argument('--verbose', action='store_true', help='상세 로깅 (DEBUG 레벨)')
+    parser.add_argument(
+        '--api-key',
+        type=str,
+        default=None,
+        help='Upstage API key (or set UPSTAGE_API_KEY env var)'
+    )
     
     args = parser.parse_args()
     
@@ -364,7 +410,8 @@ def main():
     system = ThreeStepRAG(
         dense_index_path=args.dense_index,
         bm25_index_path=args.bm25_index,
-        use_reranker=not args.no_reranker
+        use_reranker=not args.no_reranker,
+        api_key=args.api_key  
     )
     
     data = system.load_data(args.data_path, topic=args.topic)
