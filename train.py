@@ -5,6 +5,7 @@ Usage:
     python train.py --exp large_context
 """
 
+import unsloth
 import os
 import argparse
 import torch
@@ -12,23 +13,25 @@ import numpy as np
 import random
 import evaluate
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import SFTTrainer, DataCollatorForCompletionOnlyLM, SFTConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
+from trl import SFTTrainer, SFTConfig
 from peft import LoraConfig
+from unsloth import FastLanguageModel, is_bfloat16_supported
 
-from config import get_config, get_experiment_config
-from data_utils import (
-    load_data, 
-    process_dataset_for_training, 
-    setup_tokenizer, 
+from config.config import get_config, get_experiment_config
+from utils.data_utils import (
+    load_data,
+    process_dataset_for_training,
+    setup_tokenizer,
     tokenize_dataset,
-    get_token_statistics
+    get_token_statistics,
 )
 
 
 # =============================================================================
 # 유틸리티 함수
 # =============================================================================
+
 
 def set_seed(seed: int):
     """재현성을 위한 시드 고정"""
@@ -56,21 +59,22 @@ def get_torch_dtype(dtype_str: str):
 # 메트릭 함수
 # =============================================================================
 
+
 def create_metric_functions(tokenizer):
     """메트릭 계산 함수들 생성"""
-    
-    acc_metric = evaluate.load("accuracy")
+
+    f1_metric = evaluate.load("f1")
     int_output_map = {"1": 0, "2": 1, "3": 2, "4": 3, "5": 4}
-    
+
     def preprocess_logits_for_metrics(logits, labels):
         """정답 토큰 위치의 logits만 추출"""
         logits = logits if not isinstance(logits, tuple) else logits[0]
         logit_idx = [
-            tokenizer.vocab["1"], 
-            tokenizer.vocab["2"], 
-            tokenizer.vocab["3"], 
-            tokenizer.vocab["4"], 
-            tokenizer.vocab["5"]
+            tokenizer.vocab["1"],
+            tokenizer.vocab["2"],
+            tokenizer.vocab["3"],
+            tokenizer.vocab["4"],
+            tokenizer.vocab["5"],
         ]
         logits = logits[:, -2, logit_idx]  # -2: answer token, -1: eos token
         return logits
@@ -90,9 +94,11 @@ def create_metric_functions(tokenizer):
         predictions = np.argmax(probs, axis=-1)
 
         # 정확도 계산
-        acc = acc_metric.compute(predictions=predictions, references=labels)
-        return acc
-    
+        macro_f1 = f1_metric.compute(
+            predictions=predictions, references=labels, average="macro"
+        )
+        return macro_f1
+
     return preprocess_logits_for_metrics, compute_metrics
 
 
@@ -100,47 +106,48 @@ def create_metric_functions(tokenizer):
 # 메인 학습 함수
 # =============================================================================
 
+
 def train(config):
     """모델 학습 실행"""
-    
+
     print("=" * 60)
     print("🚀 학습 시작")
     print("=" * 60)
-    
+
     # 1. 시드 고정
     set_seed(config.training.seed)
-    
+
     # 2. 데이터 로드 및 전처리
     print("\n📂 데이터 로드 중...")
     df = load_data(config.path.train_data)
     print(f"  - 총 데이터 수: {len(df)}")
-    
+
     processed_dataset = process_dataset_for_training(df)
     print(f"  - 전처리 완료: {len(processed_dataset)} samples")
-    
+
+    print(f"💽 Data Format{processed_dataset['messages'][0:4]}")
+
     # 3. 모델 및 토크나이저 로드
     print(f"\n🤖 모델 로드 중: {config.model.model_name}")
-    
-    model = AutoModelForCausalLM.from_pretrained(
+
+    model, tokenizer = FastLanguageModel.from_pretrained(
         config.model.model_name,
-        torch_dtype=get_torch_dtype(config.model.torch_dtype),
-        trust_remote_code=config.model.trust_remote_code,
+        dtype=get_torch_dtype(config.model.torch_dtype),
+        # trust_remote_code=config.model.trust_remote_code,
+        load_in_4bit=True,
     )
-    
-    tokenizer = AutoTokenizer.from_pretrained(
-        config.model.model_name,
-        trust_remote_code=config.model.trust_remote_code,
-    )
+
     tokenizer = setup_tokenizer(tokenizer)
+
     print("  - 모델 및 토크나이저 로드 완료")
-    
+
     # 4. 토큰화
     print(f"\n📝 토큰화 중 (max_seq_length: {config.training.max_seq_length})...")
     tokenized_dataset = tokenize_dataset(
-        processed_dataset, 
-        tokenizer, 
-        max_seq_length=config.training.max_seq_length
+        processed_dataset, tokenizer, max_seq_length=config.training.max_seq_length
     )
+
+    """
     
     # Train/Eval 분할
     split_dataset = tokenized_dataset.train_test_split(
@@ -153,89 +160,89 @@ def train(config):
     print(f"  - Train: {len(train_dataset)} samples")
     print(f"  - Eval: {len(eval_dataset)} samples")
     
+    """
+
     # 토큰 통계
-    stats = get_token_statistics(train_dataset, tokenizer)
-    print(f"  - Token 길이: min={stats['min']}, max={stats['max']}, mean={stats['mean']:.1f}")
-    
+    stats = get_token_statistics(tokenized_dataset, tokenizer)
+    print(
+        f"  - Token 길이: min={stats['min']}, max={stats['max']}, mean={stats['mean']:.1f}"
+    )
+
     # 5. LoRA 설정
     print(f"\n⚙️ LoRA 설정")
-    peft_config = LoraConfig(
+    model = FastLanguageModel.get_peft_model(
+        model,
         r=config.lora.r,
+        target_modules=config.lora.target_modules,
         lora_alpha=config.lora.lora_alpha,
         lora_dropout=config.lora.lora_dropout,
-        target_modules=config.lora.target_modules,
         bias=config.lora.bias,
-        task_type=config.lora.task_type,
+        use_gradient_checkpointing="unsloth",
+        random_state=config.training.seed,
+        max_seq_length=config.training.max_seq_length,
+        use_rslora=False,
+        loftq_config=None,
     )
     print(f"  - r: {config.lora.r}, alpha: {config.lora.lora_alpha}")
     print(f"  - target_modules: {config.lora.target_modules}")
-    
-    # 6. Data Collator 설정
-    response_template = "<start_of_turn>model"
-    data_collator = DataCollatorForCompletionOnlyLM(
-        response_template=response_template,
-        tokenizer=tokenizer,
-    )
-    
-    # 7. 메트릭 함수 생성
+
+    # 6. 메트릭 함수 생성
     preprocess_logits_for_metrics, compute_metrics = create_metric_functions(tokenizer)
-    
-    # 8. SFTConfig 설정
+
+    # 7. SFTConfig 설정
     print(f"\n📋 학습 설정")
     print(f"  - epochs: {config.training.num_train_epochs}")
     print(f"  - batch_size: {config.training.per_device_train_batch_size}")
     print(f"  - learning_rate: {config.training.learning_rate}")
     print(f"  - output_dir: {config.path.output_dir}")
-    
+
     sft_config = SFTConfig(
-        do_train=True,
-        do_eval=True,
-        lr_scheduler_type=config.training.lr_scheduler_type,
-        max_seq_length=config.training.max_seq_length,
-        output_dir=config.path.output_dir,
+        # do_train=True,
+        # do_eval=True,
         per_device_train_batch_size=config.training.per_device_train_batch_size,
-        per_device_eval_batch_size=config.training.per_device_eval_batch_size,
         gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+        warmup_steps=config.training.warmup_steps,
+        # max_steps=config.training.max_steps,
         num_train_epochs=config.training.num_train_epochs,
         learning_rate=config.training.learning_rate,
-        weight_decay=config.training.weight_decay,
-        warmup_ratio=config.training.warmup_ratio,
+        fp16=not is_bfloat16_supported(),
+        bf16=is_bfloat16_supported(),
         logging_steps=config.training.logging_steps,
-        save_strategy=config.training.save_strategy,
-        evaluation_strategy=config.training.evaluation_strategy,
-        save_total_limit=config.training.save_total_limit,
-        save_only_model=config.training.save_only_model,
-        report_to="none",
+        optim=config.training.optim,
+        weight_decay=config.training.weight_decay,
+        lr_scheduler_type=config.training.lr_scheduler_type,
+        seed=config.training.seed,
+        output_dir=config.path.output_dir,
+        per_device_eval_batch_size=config.training.per_device_eval_batch_size,
     )
-    
-    # 9. Trainer 생성
+
+    # 8. Trainer 생성
     trainer = SFTTrainer(
         model=model,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        data_collator=data_collator,
         tokenizer=tokenizer,
+        train_dataset=tokenized_dataset,
+        # eval_dataset=eval_dataset,
+        # data_collator=data_collator,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
-        peft_config=peft_config,
         args=sft_config,
     )
-    
-    # 10. 학습 실행
+
+    # 9. 학습 실행
     print("\n" + "=" * 60)
     print("🏃 학습 실행 중...")
     print("=" * 60)
-    
+
     train_result = trainer.train()
-    
-    # 11. 결과 출력
+
+    # 10. 결과 출력
     print("\n" + "=" * 60)
     print("✅ 학습 완료!")
     print("=" * 60)
     print(f"  - Total steps: {train_result.global_step}")
     print(f"  - Train loss: {train_result.training_loss:.4f}")
     print(f"  - 체크포인트 저장 위치: {config.path.output_dir}")
-    
+
     return trainer
 
 
@@ -243,41 +250,26 @@ def train(config):
 # 메인 실행
 # =============================================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Train the model")
     parser.add_argument(
-        "--exp", 
-        type=str, 
-        default=None,
-        help="실험 이름 (large_context, more_lora, longer_training)"
-    )
-    parser.add_argument(
-        "--output_dir",
+        "--exp",
         type=str,
         default=None,
-        help="체크포인트 저장 경로"
+        help="실험 이름 (large_context, more_lora, longer_training)",
     )
     parser.add_argument(
-        "--epochs",
-        type=int,
-        default=None,
-        help="학습 에폭 수"
+        "--output_dir", type=str, default=None, help="체크포인트 저장 경로"
     )
+    parser.add_argument("--epochs", type=int, default=None, help="학습 에폭 수")
+    parser.add_argument("--lr", type=float, default=None, help="학습률")
     parser.add_argument(
-        "--lr",
-        type=float,
-        default=None,
-        help="학습률"
+        "--max_seq_length", type=int, default=None, help="최대 시퀀스 길이"
     )
-    parser.add_argument(
-        "--max_seq_length",
-        type=int,
-        default=None,
-        help="최대 시퀀스 길이"
-    )
-    
+
     args = parser.parse_args()
-    
+
     # 설정 로드
     if args.exp:
         config = get_experiment_config(args.exp)
@@ -285,7 +277,7 @@ def main():
     else:
         config = get_config()
         print("📌 기본 설정 사용")
-    
+
     # 명령줄 인자로 오버라이드
     if args.output_dir:
         config.path.output_dir = args.output_dir
@@ -295,7 +287,7 @@ def main():
         config.training.learning_rate = args.lr
     if args.max_seq_length:
         config.training.max_seq_length = args.max_seq_length
-    
+
     # 학습 실행
     train(config)
 
