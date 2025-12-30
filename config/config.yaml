@@ -1,0 +1,60 @@
+model:
+  experiment_name: "Qwen2.5-32B-uniform"
+  train:
+    model_name: "unsloth/Qwen2.5-32B-Instruct-bnb-4bit"
+    train_data: "/data/ephemeral/home/data/train_data_final.csv"
+    train_checkpoint_path: "/data/ephemeral/home/checkpoints/{experiment_name}"
+  test:
+    model_name: "/data/ephemeral/home/checkpoints/{experiment_name}/checkpoint-285"
+    valid_data: "/data/ephemeral/home/data/val_data_final.csv"
+    test_data: "/data/ephemeral/home/data/test.csv"
+    test_output_csv: "/data/ephemeral/home/outputs"
+
+seed: 42
+max_seq_length: 4096
+torch_dtype: "float16"
+uniform_answer_distribution: True  # Ensure uniform answer distribution
+train_valid_split: False
+
+visualization:
+  image_name: "Qwen2.5-32B-uniform"
+  choose_visualize: True
+  visualize_path: "/data/ephemeral/home/images/{image_name}"
+
+peft:
+  r: 64
+  lora_alpha: 32
+  lora_dropout: 0
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",]
+  bias: "none"
+  use_gradient_checkpointing: "unsloth"
+  # random_state -> Set to 'seed'
+  use_rslora: True
+  # loftq_config -> Hardcoded to None
+
+UnslothTrainingArguments:
+  do_train: True
+  do_eval: False
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 1
+  num_train_epochs: 3
+  gradient_accumulation_steps: 16
+  learning_rate: 5e-5
+  embedding_learning_rate: 1e-6
+  weight_decay: 0.01
+  lr_scheduler_type: "cosine"  #'linear', 'cosine', 'cosine_with_restarts', 'polynomial', 'constant', 'constant_with_warmup', 'inverse_sqrt', 'reduce_lr_on_plateau', 'cosine_with_min_lr', 'cosine_warmup_with_min_lr', 'warmup_stable_decay'
+  warmup_ratio: 0.0
+  warmup_steps: 5
+  optim: "adamw_8bit"
+  logging_steps: 1
+  save_strategy: "epoch"
+  eval_strategy: "epoch"
+  save_total_limit: 2
+  save_only_model: True
+  # fp16 -> Hardcoded to not is_bfloat16_supported()
+  # bf16 -> Hardcoded to is_bfloat16_supported()
+  # seed -> Set to 'seed'
+  # max_seq_length -> Set to 'max_seq_length'
+  # output_dir -> Set to 'train_checkpoint_path'
+  report_to: None
+
