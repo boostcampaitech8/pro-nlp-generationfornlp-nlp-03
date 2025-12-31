@@ -9,5 +9,7 @@
   "data/사회과학_학습데이터.json": "data/processed/social_01_chunks.pkl",
   "data/사회과학_검증데이터.json": "data/processed/social_02_chunks.pkl",
   "data/인문학_예술체육학_학습데이터.json": "data/processed/humanity_01_chunks.pkl",
-  "data/인문학_예술체육학_검증데이터.json": "data/processed/humanity_02_chunks.pkl"
+  "data/인문학_예술체육학_검증데이터.json": "data/processed/humanity_02_chunks.pkl",
+  "data/korean_grammar.json": "data/processed/korean_grammar_chunks.pkl",
+  "data/literature_articles.json": "data/processed/literature_articles_chunks.pkl"
 }
