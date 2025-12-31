@@ -167,10 +167,12 @@ class DataChunker:
             if "content" in doc and isinstance(doc["content"], list):
                 text_parts = []
                 for section in doc["content"]:
-                    section_title = section.get("section_title", "")
-                    section_text = section.get("section_text", "")
+                    section_title = section.get("section_title", "") or section.get("paragraph_id", "")
+                    section_text = section.get("section_text", "") or section.get("original_text", "")
                     text_parts.append(f"{section_title}\n{section_text}")
                 text = "\n\n".join(text_parts)
+            elif "content" in doc and isinstance(doc["content"], dict):
+                text = doc["content"].get("markdown", "")
             else:
                 text = doc.get(text_key, "")
             
@@ -245,8 +247,13 @@ def process_korean_history_data(
     """
     # 데이터 로드
     with open(raw_data_path, 'r', encoding='utf-8') as f:
-        documents = json.load(f)
-    
+        data = json.load(f)
+
+    if isinstance(data, list):
+        documents = data
+    else:
+        documents = [data]
+
     logger.info(f"Loaded {len(documents)} documents")
     
     # 청커 초기화
@@ -265,10 +272,13 @@ def process_korean_history_data(
 
 
 if __name__ == "__main__":
-    # 예제 실행
-    process_korean_history_data(
-        raw_data_path="../data/rag_output.json",
-        output_path="../data/processed2/chunks.pkl",
-        chunk_size=512,
-        chunk_overlap=1  # 문장 1개 오버랩
-    )
+    with open('data/file_key.json', 'r', encoding='utf-8') as f:
+        implement_dict = json.load(f)
+        
+    for data, result in implement_dict.items():
+        process_korean_history_data(
+            raw_data_path=data,
+            output_path=result,
+            chunk_size=512,
+            chunk_overlap=1  # 문장 1개 오버랩
+        )
