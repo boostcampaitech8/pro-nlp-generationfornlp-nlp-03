@@ -295,3 +295,22 @@ def balance_answer_by_swap(df):
     df["answer"] = final_answers
 
     return df
+
+
+# -----------------------------
+# 체크포인트 경로
+# -----------------------------
+def get_latest_checkpoint(checkpoint_dir):
+    if not os.path.isdir(checkpoint_dir):
+        return None
+
+    checkpoints = [
+        os.path.join(checkpoint_dir, d)
+        for d in os.listdir(checkpoint_dir)
+        if d.startswith("checkpoint-")
+    ]
+
+    if not checkpoints:
+        return None
+
+    return max(checkpoints, key=lambda x: int(x.split("-")[-1]))

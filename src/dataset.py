@@ -50,7 +50,6 @@ def load_data(path, mode="train"):
                 "topic": row.get("topic", None),
                 "type": row["type"],
                 "choice_len": len(parse_choices(row["choices"])),
-                "stratify_key": row["stratify_key"],
             }
             records.append(record)
 

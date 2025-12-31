@@ -21,6 +21,7 @@ from src.utils import (
     create_metric_functions,
     get_torch_dtype,
     get_token_statistics,
+    get_latest_checkpoint,
 )
 
 from sklearn.metrics import f1_score, accuracy_score
@@ -170,7 +171,9 @@ class MyModel:
         print(f"\n📝 토큰화 중 (max_seq_length: {self.config['max_seq_length']})...")
 
         self.tokenized_dataset = tokenize_dataset(
-            processed_data, self.tokenizer, max_seq_length=self.config["max_seq_length"]
+            processed_data,
+            self.tokenizer,
+            # max_seq_length=2048
         )
 
         if self.config["train_valid_split"]:
@@ -257,7 +260,14 @@ class MyModel:
         print("🏃 학습 실행 중...")
         print("=" * 60)
 
-        train_result = trainer.train()
+        resume_ckpt = get_latest_checkpoint(checkpoint_dir)
+
+        if resume_ckpt:
+            print(f"🔁 체크포인트에서 이어서 학습: {resume_ckpt}")
+            train_result = trainer.train(resume_from_checkpoint=resume_ckpt)
+        else:
+            print("🆕 새 학습 시작")
+            train_result = trainer.train()
 
         # 10. 결과 출력
         print("\n" + "=" * 60)

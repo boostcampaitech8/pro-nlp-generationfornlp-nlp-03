@@ -62,6 +62,8 @@ if __name__ == "__main__":
         processed_df = dataset.process_dataset(test_df, args.mode)
         print(f"  - 전처리 완료: {len(processed_df)} samples")
 
-        print(f"\n🤖 모델 로드 중: {config['model']['test']['model_name']}")
+        print(
+            f"\n🤖 모델 로드 중: {config['model']['test']['model_name'].format(experiment_name=config['model']['experiment_name'])}"
+        )
 
         model.inference(processed_df)

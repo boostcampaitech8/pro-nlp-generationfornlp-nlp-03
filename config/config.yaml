@@ -1,11 +1,11 @@
 model:
-  experiment_name: "Qwen2.5-32B-uniform"
+  experiment_name: "Qwen2.5-32B_aug-data:filter"
   train:
     model_name: "unsloth/Qwen2.5-32B-Instruct-bnb-4bit"
     train_data: "/data/ephemeral/home/data/train_data_final.csv"
     train_checkpoint_path: "/data/ephemeral/home/checkpoints/{experiment_name}"
   test:
-    model_name: "/data/ephemeral/home/checkpoints/{experiment_name}/checkpoint-285"
+    model_name: "/data/ephemeral/home/checkpoints/{experiment_name}/checkpoint-561"
     valid_data: "/data/ephemeral/home/data/val_data_final.csv"
     test_data: "/data/ephemeral/home/data/test.csv"
     test_output_csv: "/data/ephemeral/home/outputs"
@@ -13,11 +13,11 @@ model:
 seed: 42
 max_seq_length: 4096
 torch_dtype: "float16"
-uniform_answer_distribution: True  # Ensure uniform answer distribution
+uniform_answer_distribution: False  # Ensure uniform answer distribution
 train_valid_split: False
 
 visualization:
-  image_name: "Qwen2.5-32B-uniform"
+  image_name: "Qwen2.5-32B-aug-data:filter"
   choose_visualize: True
   visualize_path: "/data/ephemeral/home/images/{image_name}"
 
@@ -25,7 +25,7 @@ peft:
   r: 64
   lora_alpha: 32
   lora_dropout: 0
-  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",]
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj",] # "embed_tokens", "lm_head" 추가 가능
   bias: "none"
   use_gradient_checkpointing: "unsloth"
   # random_state -> Set to 'seed'
@@ -37,7 +37,7 @@ UnslothTrainingArguments:
   do_eval: False
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 1
-  num_train_epochs: 3
+  num_train_epochs: 5
   gradient_accumulation_steps: 16
   learning_rate: 5e-5
   embedding_learning_rate: 1e-6
