@@ -14,7 +14,7 @@ from src.prompt_template import (
 )
 
 
-def load_data(path, mode="train"):
+def load_data(path):
 
     print(path)
     dataset = pd.read_csv(path)
@@ -94,7 +94,7 @@ class MyDataset:
                 choices=choices_string,
             )
 
-    def process_dataset(self, df, mode="train"):
+    def process_dataset(self, df, task="train"):
         """
         학습용 데이터셋 전처리
 
@@ -107,7 +107,7 @@ class MyDataset:
 
         processed_data = []
 
-        if mode == "train":
+        if task == "train":
             for _, row in df.iterrows():
                 user_message = self.create_user_message(row)
 
@@ -125,7 +125,7 @@ class MyDataset:
 
             return Dataset.from_pandas(pd.DataFrame(processed_data))
 
-        elif mode == "test":
+        elif task == "test":
             for _, row in df.iterrows():
                 user_message = self.create_user_message(row)
 

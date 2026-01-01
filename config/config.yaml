@@ -1,23 +1,24 @@
 model:
-  experiment_name: "Qwen2.5-32B_aug-data:filter"
+  experiment_name: "Qwen2.5-32B"
   train:
     model_name: "unsloth/Qwen2.5-32B-Instruct-bnb-4bit"
     train_data: "/data/ephemeral/home/data/train_data_final.csv"
     train_checkpoint_path: "/data/ephemeral/home/checkpoints/{experiment_name}"
   test:
     model_name: "/data/ephemeral/home/checkpoints/{experiment_name}/checkpoint-561"
-    valid_data: "/data/ephemeral/home/data/val_data_final.csv"
+    valid_data: "/data/ephemeral/home/data/original_data/train.csv"
     test_data: "/data/ephemeral/home/data/test.csv"
     test_output_csv: "/data/ephemeral/home/outputs"
 
 seed: 42
 max_seq_length: 4096
+max_new_tokens: 256
 torch_dtype: "float16"
 uniform_answer_distribution: False  # Ensure uniform answer distribution
 train_valid_split: False
 
 visualization:
-  image_name: "Qwen2.5-32B-aug-data:filter"
+  image_name: "Qwen2.5-32B"
   choose_visualize: True
   visualize_path: "/data/ephemeral/home/images/{image_name}"
 

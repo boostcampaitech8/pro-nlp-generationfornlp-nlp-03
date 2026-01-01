@@ -22,6 +22,7 @@ from src.utils import (
     get_torch_dtype,
     get_token_statistics,
     get_latest_checkpoint,
+    parse_answer,
 )
 
 from sklearn.metrics import f1_score, accuracy_score
@@ -161,6 +162,7 @@ class MyModel:
 
         elif mode == "test":
             self.model = FastLanguageModel.for_inference(self.model)
+            self.max_new_tokens = self.config["max_new_tokens"]
 
     def train(self, processed_data):
 
@@ -349,6 +351,12 @@ class MyModel:
                     }
                 )
 
+        print("\n" + "=" * 60)
+        print("✅ 추론 완료!")
+        print("=" * 60)
+        print(f"  - 총 예측 수: {len(infer_results)}")
+        print(f"  - 저장 위치: {output_dir}/{self.exp_name}.csv")
+
         output_dir = self.model_c["test"]["test_output_csv"]
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
@@ -363,11 +371,132 @@ class MyModel:
             columns=["id", "answer"],
         )
 
+        # 예측 분포 출력
+        print("\n📊 예측 분포:")
+        value_counts = result_df["answer"].value_counts().sort_index()
+        for ans, count in value_counts.items():
+            print(f"  - {ans}: {count} ({count/len(result_df)*100:.1f}%)")
+
+        if len(topics) != 0:
+            df = result_df.copy()
+
+            df["label"] = labels
+            df["topic"] = topics
+            df["type"] = types
+            df["stratify_key"] = types_topics
+
+            f1_macro = f1_score(df["label"], df["answer"], average="macro")
+            f1_weighted = f1_score(df["label"], df["answer"], average="weighted")
+            acc = accuracy_score(df["label"], df["answer"])
+
+            print("\n📑 Score Report:")
+            print(f"Accuracy     : {acc:.4f}")
+            print(f"F1-macro     : {f1_macro:.4f}")
+            print(f"F1-weighted  : {f1_weighted:.4f}")
+
+            if self.visual_c["choose_visualize"]:
+
+                visual_path = self.visual_c["visualize_path"].format(
+                    image_name=self.visual_c["image_name"]
+                )
+
+                result_topic = analyze_subject_accuracy(
+                    df,
+                    true_col="label",
+                    pred_col="answer",
+                    topic_col="topic",
+                    save_dir=visual_path,
+                )
+
+    def inference_with_generate(self, processed_data):
+        self.model_c["test"]["test_output_csv"] = self.model_c["test"][
+            "test_output_csv"
+        ].format(experiment_name=self.exp_name)
+
+        pred_choices_map = {0: "1", 1: "2", 2: "3", 3: "4", 4: "5"}
+
+        print("=" * 60)
+        print("🔮 추론 시작")
+        print("=" * 60)
+
+        FastLanguageModel.for_inference(self.model)
+
+        print("  - 모델 및 토크나이저 로드 완료")
+
+        infer_results = []
+
+        # validation 데이터 인 경우에 사용 - 새로 추가
+        topics = []
+        labels = []
+        types = []
+        types_topics = []
+
+        self.model.eval()
+        with torch.inference_mode():
+            for data in tqdm(processed_data, desc="Inference"):
+                _id = data["id"]
+                messages = data["messages"]
+                len_choices = data["len_choices"]
+
+                if data["topic"] is not None and data["label"] is not None:
+                    topics.append(data["topic"])
+                    labels.append(str(data["label"]))
+                    types.append(data["type"])
+                    types_topics.append(data["stratify_key"])
+
+                inputs = self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
+                ).to("cuda")
+
+                # attention_mask 생성
+                attention_mask = torch.ones_like(inputs).to("cuda")
+
+                outputs = self.model.generate(
+                    inputs,
+                    attention_mask=attention_mask,
+                    # streamer=text_streamer,  # 추론 출력용
+                    max_new_tokens=self.max_new_tokens,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                )
+
+                generated = outputs[0][inputs.shape[1] :]
+
+                answer_text = self.tokenizer.decode(
+                    generated, skip_special_tokens=True
+                ).strip()
+
+                answer = parse_answer(answer_text)
+                if answer is None:
+                    answer = "-1"
+
+                # print("\n🔔Parser Answer:", answer)
+
+                infer_results.append(
+                    {"id": _id, "answer": answer, "raw_output": answer_text}
+                )
+
         print("\n" + "=" * 60)
         print("✅ 추론 완료!")
         print("=" * 60)
         print(f"  - 총 예측 수: {len(infer_results)}")
         print(f"  - 저장 위치: {output_dir}/{self.exp_name}.csv")
+
+        output_dir = self.model_c["test"]["test_output_csv"]
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"📂 폴더 생성 완료: {output_dir}")
+
+        print(f"\n💾 결과 저장 중: {output_dir}/{self.exp_name}.csv")
+
+        result_df = pd.DataFrame(infer_results)
+        result_df.to_csv(
+            f"{output_dir}/{self.exp_name}.csv",
+            index=False,
+            columns=["id", "answer"],
+        )
 
         # 예측 분포 출력
         print("\n📊 예측 분포:")
