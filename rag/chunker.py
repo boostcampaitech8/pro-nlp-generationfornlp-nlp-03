@@ -13,9 +13,48 @@ from transformers import AutoTokenizer
 from tqdm import tqdm
 
 
+# ===== MODIFIED ===== Helper functions for extracting title from specific JSON structures
+def _build_korean_grammar_title(doc: Dict) -> str:
+    """korean_grammar.json용 title 생성"""
+    if "metadata" in doc:
+        major_title = doc["metadata"].get("major_title", "")
+        medium_title = doc["metadata"].get("medium_title", "")
+        if medium_title and medium_title.strip():
+            return f"{major_title} - {medium_title}"
+        else:
+            return major_title
+    return ""
+
+
+def _build_literature_title(doc: Dict) -> str:
+    """literature_articles.json용 title 생성"""
+    headword = doc.get("headword", "")
+    origin = doc.get("origin", "")
+    field = doc.get("field", "")
+
+    title_parts = [headword]
+    if origin:
+        title_parts.append(f"({origin})")
+    if field:
+        title_parts.append(f"[{field}]")
+    return " ".join(title_parts)
+
+
 class DataChunker:
     """텍스트 데이터를 문장 단위로 청킹하는 클래스"""
-    
+
+    # ===== MODIFIED ===== 파일별 처리 설정 (korean_grammar, literature_articles용)
+    FILE_CONFIGS = {
+        "korean_grammar.json": {
+            "text_extractor": lambda doc: doc.get("content", {}).get("text", ""),
+            "title_extractor": lambda doc: _build_korean_grammar_title(doc),
+        },
+        "literature_articles.json": {
+            "text_extractor": lambda doc: doc.get("body", ""),
+            "title_extractor": lambda doc: _build_literature_title(doc),
+        }
+    }
+
     def __init__(
         self,
         chunk_size: int = 512,
@@ -31,7 +70,7 @@ class DataChunker:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_name, 
+            tokenizer_name,
             trust_remote_code=True
         )
         
@@ -145,38 +184,53 @@ class DataChunker:
         return chunks
     
     def chunk_documents(
-        self, 
+        self,
         documents: List[Dict],
         text_key: str = "text",
-        title_key: str = "title"
+        title_key: str = "title",
+        file_name: str = None  # ===== MODIFIED ===== 파일명으로 설정 식별
     ) -> List[Dict]:
         """
         여러 문서를 문장 단위로 청크 분할
-        
+
         Args:
             documents: 문서 리스트
             text_key: 텍스트 필드 키
             title_key: 제목 필드 키
-            
+            file_name: 원본 파일명 (FILE_CONFIGS에 매칭하기 위함)
+
         Returns:
             모든 청크 리스트
         """
         all_chunks = []
-        # Modify
+
+        # ===== MODIFIED ===== 파일별 설정 적용
+        config = None
+        if file_name:
+            # 파일명에서 실제 파일 이름만 추출
+            base_name = Path(file_name).name
+            config = self.FILE_CONFIGS.get(base_name)
+
         for doc_id, doc in enumerate(tqdm(documents, desc="Chunking documents")):
-            if "content" in doc and isinstance(doc["content"], list):
+            # ===== MODIFIED ===== 설정 기반 처리 (korean_grammar, literature_articles)
+            if config:
+                text = config["text_extractor"](doc)
+                title = config["title_extractor"](doc)
+            # 기존 로직 유지 (기존 코드)
+            elif "content" in doc and isinstance(doc["content"], list):
                 text_parts = []
                 for section in doc["content"]:
                     section_title = section.get("section_title", "") or section.get("paragraph_id", "")
                     section_text = section.get("section_text", "") or section.get("original_text", "")
                     text_parts.append(f"{section_title}\n{section_text}")
                 text = "\n\n".join(text_parts)
+                title = doc.get(title_key, "")
             elif "content" in doc and isinstance(doc["content"], dict):
                 text = doc["content"].get("markdown", "")
+                title = doc.get(title_key, "")
             else:
                 text = doc.get(text_key, "")
-            
-            title = doc.get(title_key, "")
+                title = doc.get(title_key, "")
             
             full_text = f"{title}\n{text}" if title else text
             
@@ -238,7 +292,7 @@ def process_korean_history_data(
 ):
     """
     한국사 데이터를 처리하고 문장 단위로 청킹
-    
+
     Args:
         raw_data_path: 원본 데이터 경로
         output_path: 처리된 데이터 저장 경로
@@ -255,15 +309,15 @@ def process_korean_history_data(
         documents = [data]
 
     logger.info(f"Loaded {len(documents)} documents")
-    
+
     # 청커 초기화
     chunker = DataChunker(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap
     )
-    
-    # 문서 청킹
-    chunks = chunker.chunk_documents(documents)
+
+    # ===== MODIFIED ===== 파일명 전달하여 문서 청킹
+    chunks = chunker.chunk_documents(documents, file_name=raw_data_path)
     
     # 청크 저장
     chunker.save_chunks(chunks, output_path)
