@@ -48,7 +48,7 @@ def load_data(path):
                 "answer": row.get("answer", None),
                 "question_plus": row.get("question_plus", None),
                 "topic": row.get("topic", None),
-                "type": row["type"],
+                "type": row.get("type", None),
                 "choice_len": len(parse_choices(row["choices"])),
             }
             records.append(record)

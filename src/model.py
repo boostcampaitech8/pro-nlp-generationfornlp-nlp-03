@@ -351,16 +351,16 @@ class MyModel:
                     }
                 )
 
+        output_dir = self.model_c["test"]["test_output_csv"]
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"📂 폴더 생성 완료: {output_dir}")
+            
         print("\n" + "=" * 60)
         print("✅ 추론 완료!")
         print("=" * 60)
         print(f"  - 총 예측 수: {len(infer_results)}")
         print(f"  - 저장 위치: {output_dir}/{self.exp_name}.csv")
-
-        output_dir = self.model_c["test"]["test_output_csv"]
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            print(f"📂 폴더 생성 완료: {output_dir}")
 
         print(f"\n💾 결과 저장 중: {output_dir}/{self.exp_name}.csv")
 
@@ -478,16 +478,18 @@ class MyModel:
                     {"id": _id, "answer": answer, "raw_output": answer_text}
                 )
 
-        print("\n" + "=" * 60)
-        print("✅ 추론 완료!")
-        print("=" * 60)
-        print(f"  - 총 예측 수: {len(infer_results)}")
-        print(f"  - 저장 위치: {output_dir}/{self.exp_name}.csv")
 
         output_dir = self.model_c["test"]["test_output_csv"]
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             print(f"📂 폴더 생성 완료: {output_dir}")
+            
+        print("\n" + "=" * 60)
+        print("✅ 추론 완료!")
+        print("=" * 60)
+        print(f"  - 총 예측 수: {len(infer_results)}")
+        print(f"  - 저장 위치: {output_dir}/{self.exp_name}.csv")
+        
 
         print(f"\n💾 결과 저장 중: {output_dir}/{self.exp_name}.csv")
 
