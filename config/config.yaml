@@ -1,11 +1,11 @@
 model:
-  experiment_name: "QwQ-32B-unsloth-bnb-4bit"
+  experiment_name: "Qwen2.5-32B-Instruct-bnb-4bit"
   train:
-    model_name: "unsloth/QwQ-32B-unsloth-bnb-4bit"
-    train_data: "/data/ephemeral/home/data/final_train.csv"
+    model_name: "unsloth/Qwen2.5-32B-Instruct-bnb-4bit"
+    train_data: "/data/ephemeral/home/data/train_data_3500.csv"
     train_checkpoint_path: "/data/ephemeral/home/checkpoints/{experiment_name}"
   test:
-    model_name: "unsloth/QwQ-32B-unsloth-bnb-4bit"
+    model_name: "/data/ephemeral/home/checkpoints/{experiment_name}/checkpoint-281"
     valid_data: "/data/ephemeral/home/data/val_data_final.csv"
     test_data: "/data/ephemeral/home/data/test.csv"
     test_output_csv: "/data/ephemeral/home/outputs"
@@ -18,7 +18,7 @@ uniform_answer_distribution: False  # Ensure uniform answer distribution
 train_valid_split: False
 
 visualization:
-  image_name: "QwQ-32B-unsloth-bnb-4bit"
+  image_name: "Qwen2.5-32B-Instruct-bnb-4bit"
   choose_visualize: True
   visualize_path: "/data/ephemeral/home/images/{image_name}"
 
@@ -30,6 +30,7 @@ peft:
   bias: "none"
   use_gradient_checkpointing: "unsloth"
   # random_state -> Set to 'seed'
+  use_dora: True
   use_rslora: True
   # loftq_config -> Hardcoded to None
 
@@ -38,7 +39,7 @@ UnslothTrainingArguments:
   do_eval: False
   per_device_train_batch_size: 2
   per_device_eval_batch_size: 1
-  num_train_epochs: 5
+  num_train_epochs: 3
   gradient_accumulation_steps: 16
   learning_rate: 5e-5
   embedding_learning_rate: 1e-6
