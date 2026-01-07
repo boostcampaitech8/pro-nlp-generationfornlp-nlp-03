@@ -109,7 +109,7 @@ class Agent:
         self.score_prompt = None
         self.refine_prompt = None
 
-        self.set_queries(file_path="./PROMPT/PROMPTS.yaml")
+        self.set_queries(file_path="./prompt/prompts.yaml")
         self.graph = None
 
     def load_faiss_db(self, collection_name):
@@ -131,7 +131,7 @@ class Agent:
             print(f"Error loading {collection_name}: {e}")
             return None
 
-    def set_queries(self, file_path="./PROMPT/PROMPTS.yaml"):
+    def set_queries(self, file_path="./prompt/prompts.yaml"):
         with open(file_path, "r", encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
