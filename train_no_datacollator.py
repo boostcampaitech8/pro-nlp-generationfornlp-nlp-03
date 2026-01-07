@@ -11,15 +11,12 @@ import argparse
 import torch
 import numpy as np
 import random
-import json
 import evaluate
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 from trl import SFTTrainer, SFTConfig
 from peft import LoraConfig
-from unsloth import FastLanguageModel, is_bfloat16_supported
-
-from torch.utils.data import DataLoader
+from unsloth import FastLanguageModel, is_bfloat16_supported, UnslothTrainer, UnslothTrainingArguments
 
 # from code.config import get_config, get_experiment_config
 from config import get_config, get_experiment_config
@@ -35,104 +32,6 @@ from data_utils import (
 # =============================================================================
 # 유틸리티 함수
 # =============================================================================
-from transformers import DataCollatorWithPadding
-from transformers import TrainerCallback
-
-class AddStepToLogsCallback(TrainerCallback):
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs is None:
-            return
-        # logs dict에 step 추가
-        logs["step"] = state.global_step
-        # 보기 좋게 한 줄 출력(원하면 삭제)
-        print(logs)
-
-def _find_sublist(lst, sub):
-    """lst 안에서 sub가 처음 등장하는 시작 인덱스 반환, 없으면 -1"""
-    n, m = len(lst), len(sub)
-    if m == 0 or n < m:
-        return -1
-    for i in range(n - m + 1):
-        if lst[i:i+m] == sub:
-            return i
-    return -1
-
-class CompletionOnlyDataCollator:
-    """
-    response_template(기본: <|im_start|>assistant) 이후의 답변에서
-    '1~5' 정답 토큰 1개만 labels로 남기고 나머지는 -100 마스킹.
-    => loss/metric 둘 다 안정화됨 (객관식 분류에 최적)
-    """
-    def __init__(self, tokenizer, response_template="<|im_start|>assistant", ignore_index=-100):
-        self.tokenizer = tokenizer
-        self.ignore_index = ignore_index
-        self.pad_collator = DataCollatorWithPadding(tokenizer=tokenizer, return_tensors="pt")
-
-        # response template ids
-        self.response_ids = tokenizer.encode(response_template, add_special_tokens=False)
-        if len(self.response_ids) == 0:
-            raise ValueError("response_template이 토큰화되지 않았어요. 템플릿 문자열을 확인해줘!")
-
-        # <|im_end|> 토큰 id (있으면 마스킹용)
-        end_ids = tokenizer.encode("<|im_end|>", add_special_tokens=False)
-        self.im_end_id = end_ids[0] if len(end_ids) == 1 else None
-
-        # ✅ 1~5 토큰 id (반드시 1토큰이어야 logits 방식이 깔끔함)
-        self.choice_token_ids = []
-        for s in ["1", "2", "3", "4", "5"]:
-            ids = tokenizer.encode(s, add_special_tokens=False)
-            if len(ids) != 1:
-                raise ValueError(f"'{s}'가 1 토큰이 아닙니다: {ids} (tokenizer 변경/공백/템플릿 확인 필요)")
-            self.choice_token_ids.append(ids[0])
-
-        print(f"✓ Response template: {response_template}")
-        print(f"✓ Response template IDs: {self.response_ids}")
-        print(f"✓ im_end_id: {self.im_end_id}")
-        print(f"✓ choice_token_ids(1~5): {self.choice_token_ids}")
-
-    def __call__(self, features):
-        batch = self.pad_collator(features)
-        input_ids = batch["input_ids"]
-        attention_mask = batch["attention_mask"]
-
-        labels = input_ids.clone()
-        labels[attention_mask == 0] = self.ignore_index  # pad는 loss 제외
-
-        for i in range(input_ids.size(0)):
-            ids_list = input_ids[i].tolist()
-
-            start = _find_sublist(ids_list, self.response_ids)
-            if start == -1:
-                labels[i, :] = self.ignore_index
-                continue
-
-            end = start + len(self.response_ids)  # assistant 시작 직후
-
-            # 1) 프롬프트 전체 마스킹
-            labels[i, :end] = self.ignore_index
-
-            # 2) assistant 이후에서 "1~5"가 처음 등장하는 위치를 찾는다
-            ans_idx = None
-            for j in range(end, len(ids_list)):
-                if ids_list[j] in self.choice_token_ids:
-                    ans_idx = j
-                    break
-
-            if ans_idx is None:
-                # 정답 숫자 토큰이 없으면 학습 신호 제거
-                labels[i, :] = self.ignore_index
-                continue
-
-            # 3) ✅ 정답 1토큰만 남기고 나머지는 전부 마스킹
-            labels[i, :ans_idx] = self.ignore_index
-            labels[i, ans_idx+1:] = self.ignore_index
-
-            # 4) (선택) im_end는 마스킹
-            if self.im_end_id is not None:
-                labels[i, labels[i] == self.im_end_id] = self.ignore_index
-
-        batch["labels"] = labels
-        return batch
 
 def set_seed(seed: int):
     """재현성을 위한 시드 고정"""
@@ -155,111 +54,123 @@ def get_torch_dtype(dtype_str: str):
     }
     return dtype_map.get(dtype_str, torch.float16)
 
-# ================================
-# 설정/학습 파라미터 출력용
-# ================================
-def pretty_print_config(config):
-    """config.py에서 불러온 원본 설정값(의도한 값) 출력"""
-    print("\n" + "=" * 80)
-    print("📋 CONFIG (from config.py)")
-    print("=" * 80)
-    try:
-        print(json.dumps(asdict(config), indent=2, ensure_ascii=False))
-    except Exception as e:
-        print("❌ config 출력 실패:", e)
-        print(config)
-    print("=" * 80 + "\n")
-
-
-def print_trainer_args(trainer):
-    """trainer.args에 실제로 적용된 값(진짜 적용값) 출력"""
-    print("\n" + "=" * 80)
-    print("⚙️ TRAINER ARGS (actual applied)")
-    print("=" * 80)
-
-    keys = [
-        # 배치/스텝
-        "per_device_train_batch_size", "per_device_eval_batch_size",
-        "gradient_accumulation_steps", "num_train_epochs", "max_steps",
-        # lr / scheduler
-        "learning_rate", "weight_decay", "lr_scheduler_type", "warmup_ratio", "warmup_steps",
-        # precision
-        "fp16", "bf16",
-        # logging / save / eval
-        "logging_steps", "save_strategy", "save_steps", "save_total_limit",
-        "evaluation_strategy", "eval_strategy", "eval_steps",
-        # best model
-        "load_best_model_at_end", "metric_for_best_model", "greater_is_better",
-        # output
-        "output_dir",
-    ]
-
-    for k in keys:
-        if hasattr(trainer.args, k):
-            print(f"{k:>24}: {getattr(trainer.args, k)}")
-
-    print("=" * 80 + "\n")
-
 
 # =============================================================================
 # 메트릭 함수
 # =============================================================================
 def create_metric_functions(tokenizer):
-    # ✅ 1~5 토큰 id 만들기 (반드시 1토큰이어야 함)
+    import evaluate
+    f1_metric = evaluate.load("f1")
+    int_output_map = {"1": 0, "2": 1, "3": 2, "4": 3, "5": 4}
+
+    # ✅ '1'~'5' 토큰 id를 안전하게 구하기 (tokenizer.vocab 의존 X)
     choice_token_ids = []
     for s in ["1", "2", "3", "4", "5"]:
-        ids = tokenizer.encode(s, add_special_tokens=False)
-        if len(ids) != 1:
-            raise ValueError(f"'{s}' is not 1 token: {ids}")
-        choice_token_ids.append(ids[0])
-
-    f1_metric = evaluate.load("f1")
+        tid = tokenizer.encode(s, add_special_tokens=False)
+        if len(tid) != 1:
+            # 숫자가 한 토큰이 아닐 수도 있음. 이 경우는 별도 처리 필요.
+            raise ValueError(f"토큰화가 예상과 달라요: '{s}' -> {tid}. 숫자만 1토큰이 아니면 로직을 바꿔야 해요.")
+        choice_token_ids.append(tid[0])
 
     def preprocess_logits_for_metrics(logits, labels):
+        """
+        ✅ labels에서 정답 토큰 위치를 찾아서 그 위치의 logits만 뽑아온다.
+        반환 shape: (batch, 5)  -> (1~5에 대한 점수)
+        """
         logits = logits if not isinstance(logits, tuple) else logits[0]  # (B, T, V)
         B, T, V = logits.shape
 
+        # labels: (B, T)
         labels_t = labels
+
+        # 정답 위치 idx를 배치마다 구하기: labels != -100 인 위치 중 "첫 번째"
+        # (지금은 답 토큰 + <|im_end|> 2개가 남아있으니 첫 번째가 답)
         ans_pos = []
         for i in range(B):
             positions = (labels_t[i] != -100).nonzero(as_tuple=False).squeeze(-1)
-            ans_pos.append(int(positions[0].item()) if positions.numel() > 0 else T - 1)
-        ans_pos = torch.tensor(ans_pos, device=logits.device)
+            if positions.numel() == 0:
+                # 혹시 전부 -100이면 안전하게 마지막 토큰으로(근데 이런 샘플은 metric에서 사실상 무의미)
+                ans_pos.append(T - 1)
+            else:
+                ans_pos.append(int(positions[0].item()))
+        ans_pos = torch.tensor(ans_pos, device=logits.device)  # (B,)
 
+        # 배치 인덱싱으로 각 샘플의 정답 위치 logits을 뽑는다: (B, V)
         batch_idx = torch.arange(B, device=logits.device)
-        ans_logits = logits[batch_idx, ans_pos, :]              # (B, V)
+        ans_logits = logits[batch_idx, ans_pos, :]  # (B, V)
 
-        # (B, 5)
+        # 그 중 1~5 토큰 id만 추출: (B, 5)
         ans_logits_5 = ans_logits[:, choice_token_ids]
         return ans_logits_5
 
     def compute_metrics(eval_pred):
-        logits_5, labels = eval_pred  # logits_5: (B,5), labels: (B,T)
+        """
+        preprocess_logits_for_metrics가 이미 (B,5) logits을 넘겨줌.
+        labels에서 정답 숫자도 똑같이 labels 기반으로 추출해서 비교.
+        """
+        logits_5, labels = eval_pred  # logits_5: (B,5)
 
+        # labels에서 정답 토큰 id 추출 (labels != -100의 첫 번째 토큰)
         B, T = labels.shape
         y_true = []
-        valid_idx = []
-
         for i in range(B):
             positions = np.where(labels[i] != -100)[0]
             if len(positions) == 0:
-                continue
-            tid = int(labels[i, positions[0]])
-            if tid in choice_token_ids:
-                y_true.append(choice_token_ids.index(tid))  # 0~4
-                valid_idx.append(i)
+                y_true.append(0)
+            else:
+                tid = int(labels[i, positions[0]])
+                # tid -> "1~5"로 매핑
+                if tid in choice_token_ids:
+                    y_true.append(choice_token_ids.index(tid))
+                else:
+                    # 예상 밖이면 0 처리
+                    y_true.append(0)
 
-        if len(valid_idx) == 0:
-            return {"f1": 0.0}
+        probs = torch.softmax(torch.tensor(logits_5), dim=-1)
+        y_pred = torch.argmax(probs, dim=-1).cpu().numpy()
 
-        logits_5_valid = logits_5[valid_idx]
-        y_pred = np.argmax(logits_5_valid, axis=-1)
-
-        # macro f1
         return f1_metric.compute(predictions=y_pred, references=y_true, average="macro")
 
-    # ✅ 여기 return이 "반드시" 함수 최하단에 있어야 함!!
     return preprocess_logits_for_metrics, compute_metrics
+
+# def create_metric_functions(tokenizer):
+#     """메트릭 계산 함수들 생성"""
+
+#     f1_metric = evaluate.load("f1")
+#     int_output_map = {"1": 0, "2": 1, "3": 2, "4": 3, "5": 4}
+
+#     def preprocess_logits_for_metrics(logits, labels):
+#         """정답 토큰 위치의 logits만 추출"""
+#         logits = logits if not isinstance(logits, tuple) else logits[0]
+#         logit_idx = [
+#             tokenizer.vocab["1"],
+#             tokenizer.vocab["2"],
+#             tokenizer.vocab["3"],
+#             tokenizer.vocab["4"],
+#             tokenizer.vocab["5"]
+#         ]
+#         logits = logits[:, -2, logit_idx]  # -2: answer token, -1: eos token
+#         return logits
+
+#     def compute_metrics(evaluation_result):
+#         """정확도 계산"""
+#         logits, labels = evaluation_result
+
+#         # 토큰화된 레이블 디코딩
+#         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+#         labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+#         labels = list(map(lambda x: x.split("<end_of_turn>")[0].strip(), labels))
+#         labels = list(map(lambda x: int_output_map.get(x, 0), labels))
+
+#         # Softmax로 확률 변환
+#         probs = torch.nn.functional.softmax(torch.tensor(logits), dim=-1)
+#         predictions = np.argmax(probs, axis=-1)
+
+#         # 정확도 계산
+#         macro_f1 = f1_metric.compute(predictions=predictions, references=labels, average="macro")
+#         return macro_f1
+
+#     return preprocess_logits_for_metrics, compute_metrics
 
 
 # =============================================================================
@@ -275,10 +186,10 @@ def train(config):
 
     # 1. 시드 고정
     set_seed(config.training.seed)
-    pretty_print_config(config)
 
     # 2. 데이터 로드 및 전처리
     print("\n📂 데이터 로드 중...")
+    # df = load_data(config.path.train_data)
     # ✅ train / valid 데이터 둘 다 로드
     df_train = load_data(config.path.train_data)
     df_valid = load_data(config.path.valid_data)
@@ -288,6 +199,12 @@ def train(config):
 
     print(f"  - Train samples: {len(train_dataset_raw)}")
     print(f"  - Valid samples: {len(valid_dataset_raw)}")
+
+    # print(f"  - 총 데이터 수: {len(df)}")
+
+    # processed_dataset = process_dataset_for_training(df)
+    # print(f"  - 전처리 완료: {len(processed_dataset)} samples")
+    # print(f"💽 Data Format{processed_dataset['messages'][0:4]}")
 
     # print(f"💽 Train Data Format: {train_dataset_raw['messages'][0:2]}")
     # print(f"💽 Valid Data Format: {valid_dataset_raw['messages'][0:2]}")
@@ -316,9 +233,9 @@ def train(config):
     # )
 
     tokenized_train = tokenize_dataset(
-        train_dataset_raw,
-        tokenizer,
-        max_seq_length=config.training.max_seq_length
+    train_dataset_raw,
+    tokenizer,
+    max_seq_length=config.training.max_seq_length
     )
 
     tokenized_valid = tokenize_dataset(
@@ -364,6 +281,9 @@ def train(config):
         bias=config.lora.bias,# ✅ 여기 2개 추가
         use_gradient_checkpointing=config.lora.use_gradient_checkpointing,  # "unsloth"
         use_rslora=config.lora.use_rslora,
+        use_dora=config.lora.use_dora,
+
+        init_lora_weights="pissa",
 
         random_state=config.training.seed,
         max_seq_length=config.training.max_seq_length,
@@ -383,7 +303,7 @@ def train(config):
     print(f"  - learning_rate: {config.training.learning_rate}")
     print(f"  - output_dir: {config.path.output_dir}")
 
-    sft_config = SFTConfig(
+    sft_config = UnslothTrainingArguments(
         # do_train=True,
         # do_eval=True,
         per_device_train_batch_size=config.training.per_device_train_batch_size,
@@ -411,68 +331,27 @@ def train(config):
         # metric_for_best_model="eval_f1",
         # greater_is_better=True,
         # load_best_model_at_end=True,
-
         # ✅ config 값 그대로 사용
         save_strategy=config.training.save_strategy,
         eval_strategy=config.training.eval_strategy,   # 너 코드가 eval_strategy 쓰고 있으니 그대로
-        eval_steps = config.training.eval_steps,          # 추천: 100~300 사이
-        save_steps = config.training.save_steps,          # eval_steps랑 동일하게
-
-        save_total_limit=config.training.save_total_limit, # best + last 남기려면 2 이상
-
+        save_total_limit=config.training.save_total_limit,
 
         # ✅ best 모델 저장 (네가 추가한 3개가 여기로 들어와야 적용됨)
         load_best_model_at_end=config.training.load_best_model_at_end,
         metric_for_best_model=config.training.metric_for_best_model,
         greater_is_better=config.training.greater_is_better,
-        save_only_model=config.training.save_only_model,
-
     )
 
-    data_collator = CompletionOnlyDataCollator(
-        tokenizer,
-        response_template="<|im_start|>assistant"
-    )
     # 8. Trainer 생성
-    trainer = SFTTrainer(
+    trainer = UnslothTrainer(
         model=model,
         tokenizer = tokenizer,
         train_dataset=tokenized_train,
         eval_dataset=tokenized_valid,
-        data_collator=data_collator,
         compute_metrics=compute_metrics,
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
         args=sft_config,
-        callbacks=[AddStepToLogsCallback()],
     )
-    print("collator:", type(trainer.data_collator))
-    print_trainer_args(trainer)
-
-    # DataCollator 검증용 샘플 배치 출력
-    dl = DataLoader(
-        tokenized_train.select(range(1)),
-        batch_size=1,
-        collate_fn=trainer.data_collator,
-    )
-    batch = next(iter(dl))
-
-    input_ids = batch["input_ids"][0].tolist()
-    labels = batch["labels"][0].tolist()
-
-    full_text = tokenizer.decode(input_ids, skip_special_tokens=False)
-
-    loss_pos = [i for i, t in enumerate(labels) if t != -100]
-    loss_tokens = [input_ids[i] for i in loss_pos]
-    loss_text = tokenizer.decode(loss_tokens, skip_special_tokens=False)
-
-    print("\n" + "="*80)
-    print("🔎 FULL INPUT:")
-    print(full_text)
-    print("-"*80)
-    print("🔎 LOSS TOKENS ONLY:")
-    print(loss_text)
-    print("="*80 + "\n")
-
 
     # 9. 학습 실행
     print("\n" + "=" * 60)
@@ -481,7 +360,10 @@ def train(config):
 
     train_result = trainer.train()
 
-    trainer.save_model(os.path.join(config.path.output_dir, "checkpoint-last"))# (선택) 최종 모델 저장
+    print("best_ckpt:", trainer.state.best_model_checkpoint)
+    print("best_metric:", trainer.state.best_metric)
+
+    trainer.save_model(config.path.output_dir)  # (선택) 최종 모델 저장
 
 
     # 10. 결과 출력
