@@ -1,0 +1,15 @@
+{
+  "data/korea_history.json": "data/processed/history_chunks.pkl",
+  "data/경제_01.json": "data/processed/economy_01_chunks.pkl",
+  "data/경제_02.json": "data/processed/economy_02_chunks.pkl",
+  "data/철학_01.json": "data/processed/philosophy_01_chunks.pkl",
+  "data/철학_02.json": "data/processed/philosophy_02_chunks.pkl",
+  "data/과학기술_학습데이터.json": "data/processed/science_01_chunks.pkl",
+  "data/과학기술_검증데이터.json": "data/processed/science_02_chunks.pkl",
+  "data/사회과학_학습데이터.json": "data/processed/social_01_chunks.pkl",
+  "data/사회과학_검증데이터.json": "data/processed/social_02_chunks.pkl",
+  "data/인문학_예술체육학_학습데이터.json": "data/processed/humanity_01_chunks.pkl",
+  "data/인문학_예술체육학_검증데이터.json": "data/processed/humanity_02_chunks.pkl",
+  "data/korean_grammar.json": "data/processed/korean_grammar_chunks.pkl",
+  "data/literature_articles.json": "data/processed/literature_articles_chunks.pkl"
+}
