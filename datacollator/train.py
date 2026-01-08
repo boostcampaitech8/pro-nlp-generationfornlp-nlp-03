@@ -60,7 +60,10 @@ def _find_sublist(lst, sub):
 # ============================ CODE REVIEW REQUEST =============================
 # Review focus:
 # 1) CompletionOnlyDataCollator가 정답 번호만 잘 마스킹해서 loss 계산에 들어가는지 
-# 2) (설명이 가능하시다면) SFTTrainer에 DataCollator을 안넣어도 성능 차이가 없는데 어떤 차이인지.. 
+# 2) (피드백이 가능하시다면) SFTTrainer에 DataCollator을 안넣어도 성능 차이가 없는데 어떤 차이인지.. 
+#  trainer = SFTTrainer(
+#       ...
+#       data_collator=data_collator,
 # ==============================================================================
 class CompletionOnlyDataCollator:
     """
