@@ -18,13 +18,14 @@
 
 ## 🎖️ Leader Board
 
+### 🥈 Priavate Leader Board (2위)
+
+<img width="1216" alt="image" src="./assets/private_rank.png">
+
 ### Public Leader Board (4위)
 
 <img width="1216" alt="image" src="./assets/public_rank.png">
 
-### 🥈 Priavate Leader Board (2위)
-
-<img width="1216" alt="image" src="./assets/private_rank.png">
 
 ## 👨‍💻 Contributors
 
