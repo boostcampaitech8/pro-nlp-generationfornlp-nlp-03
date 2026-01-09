@@ -13,6 +13,8 @@
 |  진행 기간  | 2025년 12월 17일 ~ 2026년 1월 6일 (3주)                                                                                      |
 | 데이터 구성 | 학습데이터 셋: KMMLU / MMMLU(Ko) / KLUE MRC 중 2031개</br>평가데이터 셋: 수능형 문제 + KMMLU / MMMLU(Ko) / KLUE MRC 총 869개 |
 |  평가 지표  | Macro F1-score = (각 클래스별 F1-score의 합) / 클래스 수                                                                     |
+|  랩업 리포트 | [Gen for NLP NLP-03 랩업 리포트](https://github.com/boostcampaitech8/pro-nlp-generationfornlp-nlp-03/blob/main/assets/Gen%20for%20NLP_NLP-03.pdf) |
+
 
 ## 🎖️ Leader Board
 
