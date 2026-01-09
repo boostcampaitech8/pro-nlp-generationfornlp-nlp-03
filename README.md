@@ -69,14 +69,14 @@
 
 ## 👼 역할 분담
 
-| 이름   | 역할                                                                                         |
-| ------ | -------------------------------------------------------------------------------------------- |
-| 최준호 | Curriculum Learning 난이도 지표 구성, 앙상블 구현                                            |
-| 김윤희 | 데이터 EDA, hybrid retrieval 실험 및 구현, 앙상블, retrieval 및 reader fine-tuning           |
-| 박서진 | Dense retrieval 실험 및 모델 선정, retrieval 파인튜닝, 데이터 전처리                         |
-| 곽나영 | 데이터 전처리, Hybrid Retrieval 실험 및 구현, Retrieval Fine-tuning                          |
-| 김이슬 | KorQuAD2 데이터 전처리 및 증강, ElasticSearch Retrieval 구현 및 성능 실험                    |
-| 우혜진 | Retrieval(EM25) 구현 및 실험, Reader 모델 개선(Negative Passage, Curriculum Learning, Qwen3) |
+| 이름   | 역할                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------ |
+| 최준호 | Agentic RAG 구성 및 적용, 프롬프트 엔지니어링, RAG 데이터 구성                                               |
+| 김윤희 | 데이터 EDA 및 증강, Unsloth 기반 모델링, gguf 포맷 기반 Few-Shot inference, Agentic RAG 구성 및 적용         |
+| 박서진 | Baseline Code 분석, Unsloth 기반 모델 학습 및 성능 분석, CoT 프롬프트 엔지니어링, RAG와 추론모델 통합        |
+| 곽나영 | Baseline Code 분석 및 코드 모듈화, 데이터 수집 및 증강, 학습 데이터 임베딩 분석, Unsloth 기반 모델링, 앙상블 |
+| 김이슬 | Baseline Code 분석, streamlit 시각화, 모델 학습 및 성능 분석, RAG 구현 및 성능평가, Agentic RAG 구성 및 적용 |
+| 우혜진 | 데이터 EDA 및 증강, Few-Shot 프롬프팅, gguf inference, 앙상블                                                |
 
 ## ✍🏻 프로젝트 개요
 
