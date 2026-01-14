@@ -74,12 +74,12 @@
 
 | 이름   | 역할                                                                                                         |
 | ------ | ------------------------------------------------------------------------------------------------------------ |
-| 최준호 | Agentic RAG 구성 및 적용, 프롬프트 엔지니어링, RAG 데이터 구성                                               |
-| 김윤희 | 데이터 EDA 및 증강, Unsloth 기반 모델링, gguf 포맷 기반 Few-Shot inference, Agentic RAG 구성 및 적용         |
-| 박서진 | Baseline Code 분석, Unsloth 기반 모델 학습 및 성능 분석, CoT 프롬프트 엔지니어링, RAG와 추론모델 통합        |
-| 곽나영 | Baseline Code 분석 및 코드 모듈화, 데이터 수집 및 증강, 학습 데이터 임베딩 분석, Unsloth 기반 모델링, 앙상블 |
-| 김이슬 | Baseline Code 분석, streamlit 시각화, 모델 학습 및 성능 분석, RAG 구현 및 성능평가, Agentic RAG 구성 및 적용 |
-| 우혜진 | 데이터 EDA 및 증강, Few-Shot 프롬프팅, gguf inference, 앙상블                                                |
+| 최&#8288;준&#8288;호 | Agentic RAG 구성 및 적용, 프롬프트 엔지니어링, RAG 데이터 구성                                               |
+| 김&#8288;윤&#8288;희 | 데이터 EDA 및 증강, Unsloth 기반 모델링, gguf 포맷 기반 Few-Shot inference, Agentic RAG 구성 및 적용         |
+| 박&#8288;서&#8288;진 | Baseline Code 분석, Unsloth 기반 모델 학습 및 성능 분석, CoT 프롬프트 엔지니어링, RAG와 추론모델 통합        |
+| 곽&#8288;나&#8288;영 | Baseline Code 분석 및 코드 모듈화, 데이터 수집 및 증강, 학습 데이터 임베딩 분석, Unsloth 기반 모델링, 앙상블 |
+| 김&#8288;이&#8288;슬 | Baseline Code 분석, streamlit 시각화, 모델 학습 및 성능 분석, RAG 구현 및 성능평가, Agentic RAG 구성 및 적용 |
+| 우&#8288;혜&#8288;진 | 데이터 EDA 및 증강, Few-Shot 프롬프팅, gguf inference, 앙상블                                                |
 
 ## ✍🏻 프로젝트 개요
 
