@@ -18,7 +18,7 @@
 
 ## 🎖️ Leader Board
 
-### 🥈 Priavate Leader Board (2위)
+### 🥈 Private Leader Board (2위)
 
 <img width="1216" alt="image" src="./assets/private_rank.png">
 
